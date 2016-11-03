@@ -18,7 +18,12 @@ func main() {
 	net := neuralnet.Network{
 		&neuralnet.DenseLayer{
 			InputCount:  28 * 28,
-			OutputCount: 50,
+			OutputCount: 200,
+		},
+		&neuralnet.HyperbolicTangent{},
+		&neuralnet.DenseLayer{
+			InputCount:  200,
+			OutputCount: 30,
 		},
 		&neuralnet.HyperbolicTangent{},
 		&skewcoder.Reconstructor{
