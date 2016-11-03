@@ -10,14 +10,14 @@ The idea is that an LSTM (or any RNN for that matter) learns to focus on recent 
 
 I trained an auto-encoder that compresses 28x28 MNIST digits to vectors with 30-components. The resulting reconstructions look like this:
 
-![MNIST Reconstructions](demo/mnist/output.png)
+![MNIST Reconstructions](demo/mnist/reconstruct/output.png)
 
 Since this auto-encoder is meant to skew priority towards the later features, I tried doing some reconstructions with features 20-29 only (zeroing the remaining features):
 
-![MNIST Reconstructions 20-29](demo/mnist/output_20-29.png)
+![MNIST Reconstructions 20-29](demo/mnist/reconstruct/output_20-29.png)
 
 This still looks fairly good, even with 1/3 of the features. However, suppose we try to do the same thing with features 0-9:
 
-![MNIST Reconstructions 0-9](demo/mnist/output_0-9.png)
+![MNIST Reconstructions 0-9](demo/mnist/reconstruct/output_0-9.png)
 
 Clearly, features 0-9 are not as powerful as features 20-29. However, somehow all 30 features come together to form decent reconstructions.
