@@ -21,3 +21,7 @@ This still looks fairly good, even with 1/3 of the features. However, suppose we
 ![MNIST Reconstructions 0-9](demo/mnist/reconstruct/output_0-9.png)
 
 Clearly, features 0-9 are not as powerful as features 20-29. However, somehow all 30 features come together to form decent reconstructions.
+
+Here is a neat animation of transitioning between digits in feature space:
+
+![Digit transitions](demo/mnist/transition/output.gif)
