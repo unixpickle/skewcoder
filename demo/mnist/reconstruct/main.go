@@ -11,6 +11,7 @@ import (
 
 	"github.com/unixpickle/autofunc"
 	"github.com/unixpickle/mnist"
+	"github.com/unixpickle/num-analysis/linalg"
 	"github.com/unixpickle/skewcoder"
 	"github.com/unixpickle/weakai/neuralnet"
 )
@@ -61,7 +62,10 @@ func insertDropLayer(net neuralnet.Network, keep map[int]bool) neuralnet.Network
 	if len(keep) == 0 {
 		return net
 	}
-	dropLayer := &FeatureDropper{Keep: keep}
+	dropLayer := &FeatureDropper{
+		Keep:  keep,
+		Means: meanFeatures(net),
+	}
 	for i, x := range net {
 		if _, ok := x.(*skewcoder.Reconstructor); ok {
 			net = append(net, nil)
@@ -72,6 +76,31 @@ func insertDropLayer(net neuralnet.Network, keep map[int]bool) neuralnet.Network
 	}
 	die("No reconstructor layer")
 	return nil
+}
+
+func meanFeatures(net neuralnet.Network) linalg.Vector {
+	samples := mnist.LoadTrainingDataSet()
+
+	var featureLayers neuralnet.Network
+	for i, x := range net {
+		if _, ok := x.(*skewcoder.Reconstructor); ok {
+			featureLayers = net[:i]
+			break
+		}
+	}
+
+	var sum linalg.Vector
+	inputs := samples.IntensityVectors()
+	for i := 0; i < 1000; i++ {
+		sample := inputs[rand.Intn(len(inputs))]
+		fv := featureLayers.Apply(&autofunc.Variable{Vector: sample}).Output()
+		if sum == nil {
+			sum = fv
+		} else {
+			sum.Add(fv)
+		}
+	}
+	return sum.Scale(1.0 / 1000)
 }
 
 func die(args ...interface{}) {
