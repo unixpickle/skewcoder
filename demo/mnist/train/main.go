@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/unixpickle/anynet"
+	"github.com/unixpickle/anynet/anyconv"
 	"github.com/unixpickle/anynet/anyff"
 	"github.com/unixpickle/anynet/anyrnn"
 	"github.com/unixpickle/anynet/anysgd"
@@ -67,17 +68,44 @@ func main() {
 
 func createNetwork() anynet.Net {
 	c := anyvec32.CurrentCreator()
-	return anynet.Net{
-		anynet.NewFC(c, 28*28, 200),
-		anynet.Tanh,
-		anynet.NewFC(c, 200, 30),
-		anynet.Tanh,
-		&skewcoder.Layer{
-			Block: anyrnn.NewLSTM(c, 1, 300).ScaleInWeights(c.MakeNumeric(5)),
-		},
-		anynet.NewFC(c, 300, 28*28),
-		anynet.Sigmoid,
+	inMarkup := `
+		Input(w=28, h=28, d=1)
+		Conv(w=5, h=5, n=16, sx=2, sy=2)
+		Tanh
+		Conv(w=3, h=3, n=16, sx=2, sy=2)
+		Tanh
+		FC(out=128)
+		Tanh
+		FC(out=30)
+		Tanh
+	`
+	inConv, err := anyconv.FromMarkup(c, inMarkup)
+	if err != nil {
+		essentials.Die("create network:", err)
 	}
+
+	outMarkup := `
+		Input(w=4, h=4, d=8)
+		Padding(t=1, r=1, b=1, l=1)
+		Conv(w=3, h=3, n=8)
+		Tanh
+		Resize(w=16, h=16)
+		Conv(w=3, h=3, n=8)
+		Tanh
+		Resize(w=30, h=30)
+		Conv(w=3, h=3, n=1)
+		Sigmoid
+	`
+	outConv, err := anyconv.FromMarkup(c, outMarkup)
+	if err != nil {
+		essentials.Die("create network:", err)
+	}
+
+	skew := &skewcoder.Layer{
+		Block: anyrnn.NewLSTM(c, 1, 128).ScaleInWeights(c.MakeNumeric(5)),
+	}
+
+	return append(append(inConv.(anynet.Net), skew), outConv.(anynet.Net)...)
 }
 
 func samples(d mnist.DataSet) anysgd.SampleList {

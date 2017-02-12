@@ -16,6 +16,8 @@ import (
 	"github.com/unixpickle/mnist"
 	"github.com/unixpickle/serializer"
 	"github.com/unixpickle/skewcoder"
+
+	_ "github.com/unixpickle/anynet/anyconv"
 )
 
 func main() {
