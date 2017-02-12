@@ -1,118 +1,94 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"flag"
 	"log"
-	"os"
-	"strconv"
+	"math/rand"
+	"time"
 
+	"github.com/unixpickle/anynet"
+	"github.com/unixpickle/anynet/anyff"
+	"github.com/unixpickle/anynet/anyrnn"
+	"github.com/unixpickle/anynet/anysgd"
+	"github.com/unixpickle/anyvec/anyvec32"
+	"github.com/unixpickle/essentials"
 	"github.com/unixpickle/mnist"
-	"github.com/unixpickle/num-analysis/linalg"
-	"github.com/unixpickle/sgd"
+	"github.com/unixpickle/rip"
+	"github.com/unixpickle/serializer"
 	"github.com/unixpickle/skewcoder"
-	"github.com/unixpickle/weakai/neuralnet"
-	"github.com/unixpickle/weakai/rnn"
-)
-
-const (
-	DefaultStepSize = 0.001
-	BatchSize       = 16
 )
 
 func main() {
-	if len(os.Args) != 2 && len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "Usage:", os.Args[0], "<output_net> [step_size]")
-		os.Exit(1)
-	}
+	rand.Seed(time.Now().UnixNano())
 
-	stepSize := DefaultStepSize
-	if len(os.Args) == 3 {
-		var err error
-		stepSize, err = strconv.ParseFloat(os.Args[2], 64)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Invalid step size:", err)
-			os.Exit(1)
-		}
-	}
+	var netPath string
+	var stepSize float64
+	var batchSize int
 
-	var net neuralnet.Network
-	if netData, err := ioutil.ReadFile(os.Args[1]); err == nil {
-		net, err = neuralnet.DeserializeNetwork(netData)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to decode network:", err)
-			os.Exit(1)
-		}
-	} else {
+	flag.StringVar(&netPath, "out", "out_net", "out net path")
+	flag.Float64Var(&stepSize, "step", 0.001, "SGD step size")
+	flag.IntVar(&batchSize, "batch", 16, "SGD batch size")
+
+	flag.Parse()
+
+	var net anynet.Net
+	if err := serializer.LoadAny(netPath, &net); err != nil {
 		log.Println("Creating network...")
 		net = createNetwork()
+	} else {
+		log.Println("Loaded network.")
 	}
 
-	training := dataSetSamples(mnist.LoadTrainingDataSet())
-
-	grad := &sgd.RMSProp{
-		Gradienter: &neuralnet.BatchRGradienter{
-			Learner:       net.BatchLearner(),
-			CostFunc:      neuralnet.MeanSquaredCost{},
-			MaxBatchSize:  BatchSize,
-			MaxGoroutines: 1,
-		},
-		Resiliency: 0.9,
+	trainer := &anyff.Trainer{
+		Net:     net,
+		Cost:    anynet.MSE{},
+		Params:  net.Parameters(),
+		Average: true,
 	}
-
 	var iter int
-	sgd.SGDMini(grad, training, stepSize, BatchSize, func(s sgd.SampleSet) bool {
-		cost := neuralnet.TotalCost(neuralnet.MeanSquaredCost{}, net, s)
-		log.Printf("iter %d: cost=%f", iter, cost)
-		iter++
-		return true
-	})
-
-	data, err := net.Serialize()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to serialize output:", err)
-		os.Exit(1)
+	sgd := &anysgd.SGD{
+		Fetcher:     trainer,
+		Gradienter:  trainer,
+		Transformer: &anysgd.Adam{},
+		Samples:     samples(mnist.LoadTrainingDataSet()),
+		Rater:       anysgd.ConstRater(stepSize),
+		BatchSize:   batchSize,
+		StatusFunc: func(b anysgd.Batch) {
+			log.Printf("iter %d: cost=%v", iter, trainer.LastCost)
+			iter++
+		},
 	}
-	if err := ioutil.WriteFile(os.Args[1], data, 0755); err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to write output:", err)
-		os.Exit(1)
+	sgd.Run(rip.NewRIP().Chan())
+
+	if err := serializer.SaveAny(netPath, net); err != nil {
+		essentials.Die("save network:", err)
 	}
 }
 
-func createNetwork() neuralnet.Network {
-	net := neuralnet.Network{
-		&neuralnet.DenseLayer{
-			InputCount:  28 * 28,
-			OutputCount: 200,
+func createNetwork() anynet.Net {
+	c := anyvec32.CurrentCreator()
+	return anynet.Net{
+		anynet.NewFC(c, 28*28, 200),
+		anynet.Tanh,
+		anynet.NewFC(c, 200, 30),
+		anynet.Tanh,
+		&skewcoder.Layer{
+			Block: anyrnn.NewLSTM(c, 1, 300).ScaleInWeights(c.MakeNumeric(5)),
 		},
-		&neuralnet.HyperbolicTangent{},
-		&neuralnet.DenseLayer{
-			InputCount:  200,
-			OutputCount: 30,
-		},
-		&neuralnet.HyperbolicTangent{},
-		&skewcoder.Reconstructor{
-			Block: rnn.NewLSTM(1, 300),
-		},
-		&neuralnet.DenseLayer{
-			InputCount:  300,
-			OutputCount: 28 * 28,
-		},
-		neuralnet.Sigmoid{},
+		anynet.NewFC(c, 300, 28*28),
+		anynet.Sigmoid,
 	}
-	net.Randomize()
-	return net
 }
 
-func dataSetSamples(d mnist.DataSet) sgd.SampleSet {
-	inputVecs := vecVec(d.IntensityVectors())
-	return neuralnet.VectorSampleSet(inputVecs, inputVecs)
-}
-
-func vecVec(f [][]float64) []linalg.Vector {
-	res := make([]linalg.Vector, len(f))
-	for i, x := range f {
-		res[i] = x
+func samples(d mnist.DataSet) anysgd.SampleList {
+	var res anyff.SliceSampleList
+	for _, x := range d.IntensityVectors() {
+		c := anyvec32.CurrentCreator()
+		v := c.MakeVectorData(c.MakeNumericList(x))
+		res = append(res, &anyff.Sample{
+			Input:  v,
+			Output: v.Copy(),
+		})
 	}
 	return res
 }

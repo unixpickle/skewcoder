@@ -5,24 +5,22 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
-	"io/ioutil"
 	"log"
 	"os"
 
-	"github.com/unixpickle/weakai/neuralnet"
+	"github.com/unixpickle/anynet"
+	"github.com/unixpickle/essentials"
+	"github.com/unixpickle/serializer"
 )
 
 func main() {
 	if len(os.Args) != 3 {
-		die("Usage:", os.Args[0], "<net_file> <output.gif>")
+		essentials.Die("Usage:", os.Args[0], "<net_file> <output.gif>")
 	}
-	netData, err := ioutil.ReadFile(os.Args[1])
-	if err != nil {
-		die("Read net:", err)
-	}
-	net, err := neuralnet.DeserializeNetwork(netData)
-	if err != nil {
-		die("Deserialize net:", err)
+
+	var net anynet.Net
+	if err := serializer.LoadAny(os.Args[1], &net); err != nil {
+		essentials.Die("load net:", net)
 	}
 
 	grid := NewGrid(net)
@@ -49,7 +47,7 @@ func main() {
 	log.Println("Saving result...")
 	f, err := os.Create(os.Args[2])
 	if err != nil {
-		die(err)
+		essentials.Die(err)
 	}
 	defer f.Close()
 	if err := gif.EncodeAll(f, &res); err != nil {
@@ -78,9 +76,4 @@ func paletted(img image.Image, p color.Palette) *image.Paletted {
 		}
 	}
 	return res
-}
-
-func die(args ...interface{}) {
-	fmt.Fprintln(os.Stderr, args...)
-	os.Exit(1)
 }

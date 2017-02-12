@@ -1,50 +1,34 @@
 package main
 
 import (
-	"errors"
-
-	"github.com/unixpickle/autofunc"
-	"github.com/unixpickle/num-analysis/linalg"
+	"github.com/unixpickle/anydiff"
+	"github.com/unixpickle/anyvec"
 )
 
 type FeatureDropper struct {
 	Keep  map[int]bool
-	Means linalg.Vector
+	Means []float32
 }
 
-func (f *FeatureDropper) Apply(in autofunc.Result) autofunc.Result {
-	mask := make(linalg.Vector, len(in.Output()))
-	means := make(linalg.Vector, len(in.Output()))
-	for x := range mask {
-		if f.Keep[x] {
-			mask[x] = 1
+func (f *FeatureDropper) Apply(in anydiff.Res, n int) anydiff.Res {
+	mask := make([]float32, in.Output().Len())
+	means := make([]float32, in.Output().Len())
+	for i := range mask {
+		if f.Keep[i] {
+			mask[i] = 1
 		} else {
-			means[x] = f.Means[x]
+			means[i] = f.Means[i]
 		}
 	}
-	return autofunc.Add(autofunc.Mul(&autofunc.Variable{Vector: mask}, in),
-		&autofunc.Variable{Vector: means})
+	c := in.Output().Creator()
+	maskVec := repeat(c.MakeVectorData(mask), n)
+	meansVec := repeat(c.MakeVectorData(means), n)
+	return anydiff.Add(anydiff.Mul(anydiff.NewConst(maskVec), in),
+		anydiff.NewConst(meansVec))
 }
 
-func (f *FeatureDropper) ApplyR(rv autofunc.RVector, in autofunc.RResult) autofunc.RResult {
-	mask := make(linalg.Vector, len(in.Output()))
-	means := make(linalg.Vector, len(in.Output()))
-	for x := range mask {
-		if f.Keep[x] {
-			mask[x] = 1
-		} else {
-			means[x] = f.Means[x]
-		}
-	}
-	maskVar := autofunc.NewRVariable(&autofunc.Variable{Vector: mask}, rv)
-	meanVar := autofunc.NewRVariable(&autofunc.Variable{Vector: means}, rv)
-	return autofunc.AddR(autofunc.MulR(maskVar, in), meanVar)
-}
-
-func (f *FeatureDropper) SerializerType() string {
-	return ""
-}
-
-func (f *FeatureDropper) Serialize() ([]byte, error) {
-	return nil, errors.New("not implemented")
+func repeat(v anyvec.Vector, n int) anyvec.Vector {
+	res := v.Creator().MakeVector(v.Len() * n)
+	anyvec.AddRepeated(res, v)
+	return res
 }
